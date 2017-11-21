@@ -1,0 +1,3 @@
+[submodule "pc-c/pc-libmill/libmill"]
+	path = pc-c/pc-libmill/libmill
+	url = https://github.com/sustrik/libmill.git

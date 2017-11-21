@@ -29,9 +29,9 @@ func consumer(buffer <-chan int, id int, wg *sync.WaitGroup) {
 func init() {
 	flag.IntVar(&bufferSize, "b", 100, "Size of buffer shared by producers and consumers.")
 	flag.IntVar(&producerCount, "p", 5, "Number of producers")
-  flag.IntVar(&consumerCount, "c", 5, "Number of consumers")
+	flag.IntVar(&consumerCount, "c", 5, "Number of consumers")
 	flag.IntVar(&elementsProduced, "e", 100, "Num elements produced by each producer")
-  flag.Parse()
+	flag.Parse()
 }
 
 func main() {
@@ -39,8 +39,6 @@ func main() {
 	var wgConsumer sync.WaitGroup
 
 	buffer := make(chan int, bufferSize)
-
-	fmt.Printf("bufferSize is %d\n", bufferSize)
 
 	// launch goroutines for producer
 	for i := 0; i < producerCount; i++ {
