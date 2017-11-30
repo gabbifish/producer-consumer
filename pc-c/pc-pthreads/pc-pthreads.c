@@ -2,6 +2,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <getopt.h>
+#include <stdbool.h>
 
 typedef struct {
   int *buffer;
@@ -17,7 +18,7 @@ typedef struct {
 } buf_info_t;
 
 typedef struct {
-  int elems_produced;
+  int elems_per_producer;
   int id;
   buf_info_t *buf_info;
 } producer_t;
@@ -25,73 +26,103 @@ typedef struct {
 typedef struct {
   int id;
   buf_info_t *buf_info;
+  int *num_consumed;
 } consumer_t;
 
 void *producer(void *pc) {
   producer_t *producer_config = (producer_t *)pc;
   buf_info_t *buf_info = producer_config->buf_info;
-  for (int i = 0; i < producer_config->elems_produced; i++){
+
+  for (int i = 0; i < producer_config->elems_per_producer; i++){
     pthread_mutex_lock(buf_info->buf_mutex);
-    // if can_produce, write an element in. otherwise block.
+    // if can_produce, write an element in. Otherwise block.
     while (buf_info->buffer_elems == buf_info->buffer_cap) {
       pthread_cond_wait(buf_info->can_produce, buf_info->buf_mutex);
     }
+
     // ADD TO BUFFER APPROPRIATELY
-    buf_info->buffer[buf_info->next_write] = producer_config->id;
-    printf("Producer %d wrote value %d\n", producer_config->id,
-      producer_config->id);
+    int val = producer_config->id * 1000 + i;
+    buf_info->buffer[buf_info->next_write] = val; // producer_config->id;
+    if (val % 100 > 95) {
+      printf("Producer %d wrote value %d\n", producer_config->id, val); // producer_config->id);
+    }
+
     // In case last index is taken, do wraparound.
-    buf_info->next_write = (buf_info->next_write + 1) %
-      buf_info->buffer_cap;
+    buf_info->next_write = (buf_info->next_write + 1) % buf_info->buffer_cap;
     buf_info->buffer_elems += 1;
 
-    // signifify this thread is done if all elems have been produced.
-    if (i == producer_config->elems_produced - 1) {
+    // Signify this thread is done if all elems have been produced.
+    if (i == producer_config->elems_per_producer - 1) {
       buf_info->producers_done += 1;
     }
-    pthread_cond_signal(buf_info->can_consume);
+
+    /* We tell ALL consumers via pthread_cond_broadcast() that there are items
+     * in the buffer. This is because if this is the last producer on its last
+     * item, there may be multiple consumers waiting on can_consume.
+     * If we call pthread_cond_signal() which only signals one consumer, then
+     * only that one consumer will read from buffer, realize that all producers
+     * are done, and exit. The other consumers would just hang on can_consume.
+     */
+    pthread_cond_broadcast(buf_info->can_consume);
     pthread_mutex_unlock(buf_info->buf_mutex);
   }
-  // when you know you're done producing (no more elements to write)
+  // done producing, no more elements to write
   printf("Producer id %d finished writing to buffer.\n", producer_config->id);
-  pthread_exit(NULL);
-  // need to free producer_configs once we know threads are done
+
+  // need to free producer_config once thread is done
   free(producer_config);
+
+  pthread_exit(NULL);
 }
 
 void *consumer(void *cc) {
   consumer_t *consumer_config = (consumer_t *)cc;
   buf_info_t *buf_info = consumer_config->buf_info;
 
-  while(1) {
+  int num_elems_consumed = 0;
+  bool done_consuming = false; // only true when all producers finish and buffer is empty
+
+  while(true) {
     pthread_mutex_lock(buf_info->buf_mutex);
-    // REALLY HARD TO FIGURE OUT HOW TO SIGNIFY BUFFER IS CLOSED?
-    if (buf_info->producers_done == buf_info->total_producers &&
-        buf_info->buffer_elems == 0) {
-      pthread_mutex_unlock(buf_info->buf_mutex); // still need to unlock mutex
+    while (buf_info->buffer_elems == 0) {
+      if (buf_info->producers_done == buf_info->total_producers) {
+        done_consuming = true;
+        pthread_mutex_unlock(buf_info->buf_mutex); // still need to unlock mutex
+        break;
+      } else {
+        pthread_cond_wait(buf_info->can_consume, buf_info->buf_mutex);
+      }
+    }
+    if (done_consuming) {
       break;
     }
-    while (buf_info->buffer_elems == 0) {
-      pthread_cond_wait(buf_info->can_consume, buf_info->buf_mutex);
-    }
-    // READ FROM BUFFER APPROPRIATELY
+
+    // read from buffer
     int read_val = buf_info->buffer[buf_info->next_read];
     printf("Consumer %d read value %d\n", consumer_config->id, read_val);
 
     buf_info->buffer[buf_info->next_read] = -1;
     // In case last index is already read, do wraparound.
-    buf_info->next_read = (buf_info->next_read + 1) %
-      buf_info->buffer_cap;
+    buf_info->next_read = (buf_info->next_read + 1) % buf_info->buffer_cap;
     buf_info->buffer_elems -= 1;
 
+    // Tell at least one producer that there is now space in the buffer.
+    // We don't have to tell all producers since consumers always outlive
+    // producers.
     pthread_cond_signal(buf_info->can_produce);
     pthread_mutex_unlock(buf_info->buf_mutex);
+
+    num_elems_consumed += 1;
   }
-  // when you know you're done consuming
-  printf("Consumer id %d finished writing to buffer.\n", consumer_config->id);
-  pthread_exit(NULL);
-  // need to free consumer_configs once we know threads are done
+  // done consuming
+  printf("Consumer id %d finished reading %d items from buffer.\n",
+      consumer_config->id, num_elems_consumed);
+  *consumer_config->num_consumed = num_elems_consumed;
+
+  // need to free consumer_config once thread is done
   free(consumer_config);
+
+  pthread_exit(NULL);
 }
 
 int main (int argc, char *argv[]) {
@@ -99,7 +130,7 @@ int main (int argc, char *argv[]) {
   int buffer_size = 100;
   int producer_count = 5;
   int consumer_count = 5;
-  int elements_produced = 100;
+  int elems_per_producer = 100;
 
   int c;
   while ((c = getopt(argc, argv, "hb:p:c:e:")) != EOF)
@@ -120,12 +151,13 @@ int main (int argc, char *argv[]) {
         consumer_count = atoi((char *) optarg);
         break;
       case 'e':
-        elements_produced = atoi((char *) optarg);
+        elems_per_producer = atoi((char *) optarg);
         break;
     } /* switch */
   } /* -- while -- */
 
-  // Buffer variables
+  // Buffer. We can keep this on the stack since the main
+  // thread waits for the producers and consumers to finish.
   int buffer[buffer_size];
 
   // Mutexes necessary
@@ -139,23 +171,27 @@ int main (int argc, char *argv[]) {
   pthread_t producer_threads[producer_count];
   pthread_t consumer_threads[consumer_count];
 
-  buf_info_t *buf_info = calloc(sizeof(buf_info_t), 1);
-  buf_info->buffer = buffer;
-  buf_info->buffer_elems = 0;
-  buf_info->buffer_cap = buffer_size;
-  buf_info->next_write = 0;
-  buf_info->next_read = 0;
-  buf_info->producers_done = 0;
-  buf_info->total_producers = producer_count;
-  buf_info->buf_mutex = &buf_mutex;
-  buf_info->can_produce = &can_produce;
-  buf_info->can_consume = &can_consume;
+  // Result array to store return value of consumer threads
+  int consumer_results[consumer_count];
+
+  buf_info_t buf_info = {
+    .buffer = buffer,
+    .buffer_elems = 0,
+    .buffer_cap = buffer_size,
+    .next_write = 0,
+    .next_read = 0,
+    .producers_done = 0,
+    .total_producers = producer_count,
+    .buf_mutex = &buf_mutex,
+    .can_produce = &can_produce,
+    .can_consume = &can_consume
+  };
 
   for(int p = 0; p < producer_count; p++) {
     producer_t *producer_config = calloc(sizeof(producer_t), 1);
     producer_config->id = p;
-    producer_config->elems_produced = elements_produced;
-    producer_config->buf_info = buf_info;
+    producer_config->elems_per_producer = elems_per_producer;
+    producer_config->buf_info = &buf_info;
 
     int producer_thread_err = pthread_create(&producer_threads[p], NULL,
       producer, (void *)producer_config);
@@ -169,19 +205,45 @@ int main (int argc, char *argv[]) {
   for(int c = 0; c < consumer_count; c++) {
     consumer_t *consumer_config = calloc(sizeof(consumer_t), 1);
     consumer_config->id = c;
-    consumer_config->buf_info = buf_info;
+    consumer_config->buf_info = &buf_info;
+    consumer_config->num_consumed = &consumer_results[c];
 
     int consumer_thread_err = pthread_create(&consumer_threads[c], NULL,
       consumer, (void *)consumer_config);
     if (consumer_thread_err) {
-      printf("ERROR; return code from creating producer is %d\n",
+      printf("ERROR; return code from creating consumer is %d\n",
        consumer_thread_err);
       exit(-1);
     }
   }
 
-  // when producer has finished writing, start "sending" sentinels?
-  // that way consumers know when to quit.
-  free(buf_info);
-  pthread_exit(NULL);
+  // Join all producer threads
+  for (int p = 0; p < producer_count; p++) {
+    pthread_join(producer_threads[p], NULL);
+    printf("Joined producer id %d\n", p);
+  }
+  printf("Finished joining all producers\n");
+
+  // Join all consumer threads
+  int total_consumed = 0;
+  for (int c = 0; c < consumer_count; c++) {
+    pthread_join(consumer_threads[c], NULL);
+    total_consumed += consumer_results[c];
+    printf("Joined consumer id %d\n", c);
+  }
+  printf("Finished joining all consumers\n");
+
+  // check that we actually consumed all items produced
+  const int total_produced = producer_count * elems_per_producer;
+  if (total_consumed == total_produced) {
+    printf("Consumed all %d elements produced by producers\n", total_produced);
+  } else {
+    printf("ERROR: Only consumed %d out of %d elements produced\n",
+        total_consumed, total_produced);
+  }
+
+  // memory clean up
+  pthread_mutex_destroy(&buf_mutex);
+  pthread_cond_destroy(&can_produce);
+  pthread_cond_destroy(&can_consume);
 }
