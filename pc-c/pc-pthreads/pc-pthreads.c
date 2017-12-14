@@ -70,9 +70,6 @@ void *producer(void *pc) {
   // done producing, no more elements to write
   printf("Producer id %d finished writing to buffer.\n", producer_config->id);
 
-  // need to free producer_config once thread is done
-  free(producer_config);
-
   pthread_exit(NULL);
 }
 
@@ -118,10 +115,7 @@ void *consumer(void *cc) {
   // done consuming
   printf("Consumer id %d finished reading %d items from buffer.\n",
       consumer_config->id, num_elems_consumed);
-  *consumer_config->num_consumed = num_elems_consumed;
-
-  // need to free consumer_config once thread is done
-  free(consumer_config);
+  *(consumer_config->num_consumed) = num_elems_consumed;
 
   pthread_exit(NULL);
 }
@@ -172,6 +166,10 @@ int main (int argc, char *argv[]) {
   pthread_t producer_threads[producer_count];
   pthread_t consumer_threads[consumer_count];
 
+  // lists of producer and consumer configs
+  producer_t producer_configs[producer_count];
+  consumer_t consumer_configs[consumer_count];
+
   // Result array to store return value of consumer threads
   int consumer_results[consumer_count];
 
@@ -189,13 +187,13 @@ int main (int argc, char *argv[]) {
   };
 
   for(int p = 0; p < producer_count; p++) {
-    producer_t *producer_config = calloc(sizeof(producer_t), 1);
+    producer_t *producer_config = &producer_configs[p];
     producer_config->id = p;
     producer_config->elems_per_producer = elems_per_producer;
     producer_config->buf_info = &buf_info;
 
     int producer_thread_err = pthread_create(&producer_threads[p], NULL,
-      producer, (void *)producer_config);
+      producer, (void *) producer_config);
     if (producer_thread_err) {
       printf("ERROR; return code from creating producer is %d\n",
        producer_thread_err);
@@ -204,13 +202,13 @@ int main (int argc, char *argv[]) {
   }
 
   for(int c = 0; c < consumer_count; c++) {
-    consumer_t *consumer_config = calloc(sizeof(consumer_t), 1);
+    consumer_t *consumer_config = &consumer_configs[c];
     consumer_config->id = c;
     consumer_config->buf_info = &buf_info;
     consumer_config->num_consumed = &consumer_results[c];
 
     int consumer_thread_err = pthread_create(&consumer_threads[c], NULL,
-      consumer, (void *)consumer_config);
+      consumer, (void *) consumer_config);
     if (consumer_thread_err) {
       printf("ERROR; return code from creating consumer is %d\n",
        consumer_thread_err);
