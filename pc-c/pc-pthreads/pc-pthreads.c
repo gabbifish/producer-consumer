@@ -43,7 +43,8 @@ void *producer(void *pc) {
     // ADD TO BUFFER APPROPRIATELY
     int val = producer_config->id * 1000 + i;
     buf_info->buffer[buf_info->next_write] = val; // producer_config->id;
-    if (val % 100 > 95) {
+    if (val % buf_info->buffer_cap >
+      buf_info->buffer_cap - buf_info->total_producers) {
       printf("Producer %d wrote value %d\n", producer_config->id, val); // producer_config->id);
     }
 
