@@ -1,8 +1,0 @@
-[package]
-name = "rust"
-version = "0.1.0"
-authors = ["chrisyeh"]
-
-[dependencies]
-chan = "0.1.19"
-getopts = "0.2"
