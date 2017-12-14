@@ -5,3 +5,4 @@ authors = ["chrisyeh"]
 
 [dependencies]
 chan = "0.1.19"
+getopts = "0.2"
