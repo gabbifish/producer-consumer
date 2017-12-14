@@ -1,3 +1,6 @@
 [submodule "pc-c/pc-libmill/libmill"]
 	path = pc-c/pc-libmill/libmill
 	url = https://github.com/sustrik/libmill.git
+[submodule "pc-c/pc-protothreads/libfiber"]
+	path = pc-c/pc-protothreads/libfiber
+	url = https://github.com/brianwatling/libfiber
