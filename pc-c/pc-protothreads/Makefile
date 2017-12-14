@@ -4,7 +4,7 @@ CFLAGS = -g -Wall -I$(LDIR)
 
 default: pc-protothreads
 
-pc-protothreads:  pc-pthreads.o
+pc-protothreads:  pc-protothreads.o
 	$(CC) $(CFLAGS) -o pc-protothreads pc-protothreads.o $(LDFLAGS)
 
 pc-protothreads.o:  pc-protothreads.c
