@@ -1,8 +1,30 @@
+/*
+Usage: pc-pthreads [-h] [-b BUFFER_SIZE] [-p NUM_PRODUCERS] [-c NUM_CONSUMERS]
+          [-e NUM_ELEMS_PER_PRODUCER] [-i] [-j]
+
+-h    help
+-b BUFFER_SIZE
+      use a shared buffer that can hold BUFFER_SIZE integers
+      (default: 100)
+-p NUM_PRODUCERS
+      number of producer threads (default: 5)
+-c NUM_CONSUMERS
+      number of consumer threads (default: 5)
+-e NUM_ELEMS_PER_PRODUCER
+      each producer adds NUM_ELEMS_PER_PRODUCER ints to the buffer
+      (default: 100)
+-i    have producer threads sleep for 1ms before adding int to buffer
+      (default: no sleep)
+-j    have consumer threads sleep for 1ms after reading int from buffer
+      (default: no sleep)
+*/
+
 #include <pthread.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <getopt.h>
 #include <stdbool.h>
+#include <unistd.h> // for usleep()
 
 typedef struct {
   int *buffer;
@@ -21,12 +43,14 @@ typedef struct {
   int elems_per_producer;
   int id;
   buf_info_t *buf_info;
+  bool do_sleep;
 } producer_t;
 
 typedef struct {
   int id;
   buf_info_t *buf_info;
   int *num_consumed;
+  bool do_sleep;
 } consumer_t;
 
 void *producer(void *pc) {
@@ -34,6 +58,12 @@ void *producer(void *pc) {
   buf_info_t *buf_info = producer_config->buf_info;
 
   for (int i = 0; i < producer_config->elems_per_producer; i++){
+    if (producer_config->do_sleep) {
+      // simulate a blocking disk I/O read
+      // sleep for 1000 microseconds = 1 millisecond
+      usleep(1000);
+    }
+
     pthread_mutex_lock(buf_info->buf_mutex);
     // if can_produce, write an element in. Otherwise block.
     while (buf_info->buffer_elems == buf_info->buffer_cap) {
@@ -43,10 +73,10 @@ void *producer(void *pc) {
     // ADD TO BUFFER APPROPRIATELY
     int val = producer_config->id * 1000 + i;
     buf_info->buffer[buf_info->next_write] = val; // producer_config->id;
-    if (val % buf_info->buffer_cap >
-      buf_info->buffer_cap - buf_info->total_producers) {
-      printf("Producer %d wrote value %d\n", producer_config->id, val); // producer_config->id);
-    }
+    // if (val % buf_info->buffer_cap >
+    //   buf_info->buffer_cap - buf_info->total_producers) {
+    //   printf("Producer %d wrote value %d\n", producer_config->id, val); // producer_config->id);
+    // }
 
     // In case last index is taken, do wraparound.
     buf_info->next_write = (buf_info->next_write + 1) % buf_info->buffer_cap;
@@ -68,7 +98,7 @@ void *producer(void *pc) {
     pthread_mutex_unlock(buf_info->buf_mutex);
   }
   // done producing, no more elements to write
-  printf("Producer id %d finished writing to buffer.\n", producer_config->id);
+  // printf("Producer id %d finished writing to buffer.\n", producer_config->id);
 
   pthread_exit(NULL);
 }
@@ -77,7 +107,7 @@ void *consumer(void *cc) {
   consumer_t *consumer_config = (consumer_t *)cc;
   buf_info_t *buf_info = consumer_config->buf_info;
 
-  int num_elems_consumed = 0;
+  // int num_elems_consumed = 0;
   bool done_consuming = false; // only true when all producers finish and buffer is empty
 
   while(true) {
@@ -97,7 +127,7 @@ void *consumer(void *cc) {
 
     // read from buffer
     int read_val = buf_info->buffer[buf_info->next_read];
-    printf("Consumer %d read value %d\n", consumer_config->id, read_val);
+    // printf("Consumer %d read value %d\n", consumer_config->id, read_val);
 
     buf_info->buffer[buf_info->next_read] = -1;
     // In case last index is already read, do wraparound.
@@ -110,12 +140,19 @@ void *consumer(void *cc) {
     pthread_cond_signal(buf_info->can_produce);
     pthread_mutex_unlock(buf_info->buf_mutex);
 
-    num_elems_consumed += 1;
+    if (consumer_config->do_sleep) {
+      // simulate an expensive computation
+      // sleep for 1000 microseconds = 1 millisecond
+      usleep(1000);
+    }
+
+    // num_elems_consumed += 1;
+    read_val *= 2; // "data computation"
   }
   // done consuming
-  printf("Consumer id %d finished reading %d items from buffer.\n",
-      consumer_config->id, num_elems_consumed);
-  *(consumer_config->num_consumed) = num_elems_consumed;
+  // printf("Consumer id %d finished reading %d items from buffer.\n",
+  //     consumer_config->id, num_elems_consumed);
+  // *(consumer_config->num_consumed) = num_elems_consumed;
 
   pthread_exit(NULL);
 }
@@ -127,11 +164,12 @@ int main (int argc, char *argv[]) {
   int consumer_count = 5;
   int elems_per_producer = 100;
 
+  bool producer_do_sleep = false;
+  bool consumer_do_sleep = false;
+
   int c;
-  while ((c = getopt(argc, argv, "hb:p:c:e:")) != EOF)
-  {
-    switch (c)
-    {
+  while ((c = getopt(argc, argv, "hb:p:c:e:ij")) != EOF) {
+    switch (c) {
       case 'h':
         // usage(argv[0]);
         exit(0);
@@ -147,6 +185,12 @@ int main (int argc, char *argv[]) {
         break;
       case 'e':
         elems_per_producer = atoi((char *) optarg);
+        break;
+      case 'i':
+        producer_do_sleep = true;
+        break;
+      case 'j':
+        consumer_do_sleep = true;
         break;
     } /* switch */
   } /* -- while -- */
@@ -191,6 +235,7 @@ int main (int argc, char *argv[]) {
     producer_config->id = p;
     producer_config->elems_per_producer = elems_per_producer;
     producer_config->buf_info = &buf_info;
+    producer_config->do_sleep = producer_do_sleep;
 
     int producer_thread_err = pthread_create(&producer_threads[p], NULL,
       producer, (void *) producer_config);
@@ -206,6 +251,7 @@ int main (int argc, char *argv[]) {
     consumer_config->id = c;
     consumer_config->buf_info = &buf_info;
     consumer_config->num_consumed = &consumer_results[c];
+    consumer_config->do_sleep = consumer_do_sleep;
 
     int consumer_thread_err = pthread_create(&consumer_threads[c], NULL,
       consumer, (void *) consumer_config);
@@ -219,27 +265,27 @@ int main (int argc, char *argv[]) {
   // Join all producer threads
   for (int p = 0; p < producer_count; p++) {
     pthread_join(producer_threads[p], NULL);
-    printf("Joined producer id %d\n", p);
+    // printf("Joined producer id %d\n", p);
   }
-  printf("Finished joining all producers\n");
+  // printf("Finished joining all producers\n");
 
   // Join all consumer threads
-  int total_consumed = 0;
+  // int total_consumed = 0;
   for (int c = 0; c < consumer_count; c++) {
     pthread_join(consumer_threads[c], NULL);
-    total_consumed += consumer_results[c];
-    printf("Joined consumer id %d\n", c);
+    // total_consumed += consumer_results[c];
+    // printf("Joined consumer id %d\n", c);
   }
-  printf("Finished joining all consumers\n");
+  // printf("Finished joining all consumers\n");
 
   // check that we actually consumed all items produced
-  const int total_produced = producer_count * elems_per_producer;
-  if (total_consumed == total_produced) {
-    printf("Consumed all %d elements produced by producers\n", total_produced);
-  } else {
-    printf("ERROR: Only consumed %d out of %d elements produced\n",
-        total_consumed, total_produced);
-  }
+  // const int total_produced = producer_count * elems_per_producer;
+  // if (total_consumed == total_produced) {
+  //   // printf("Consumed all %d elements produced by producers\n", total_produced);
+  // } else {
+  //   printf("ERROR: Only consumed %d out of %d elements produced\n",
+  //       total_consumed, total_produced);
+  // }
 
   // memory clean up
   pthread_mutex_destroy(&buf_mutex);

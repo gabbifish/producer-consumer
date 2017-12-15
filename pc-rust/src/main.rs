@@ -1,23 +1,34 @@
 // for Rust channels
 extern crate chan;
 use chan::{Receiver, Sender, WaitGroup};
-use std::thread;
+use std::{thread, time};
 
 // for argument parsing
 extern crate getopts;
 use getopts::{Matches, Options};
 use std::env;
 
-fn producer_basic(id: u32, elems_per_producer: u32, s: Sender<u32>) {
+fn producer_basic(id: u32, elems_per_producer: u32, s: Sender<u32>, sleep: bool) {
   for elem in 0..elems_per_producer {
+    if sleep {
+      // simulate a blocking disk I/O read, sleep for 1ms
+      thread::sleep(time::Duration::from_millis(1));
+    }
     s.send(elem);
-    println!("Producer id {} added {} to buffer.", id, elem);
+    // println!("Producer id {} added {} to buffer.", id, elem);
   }
 }
 
-fn consumer_basic(id: u32, r: Receiver<u32>, wg: WaitGroup) {
+fn consumer_basic(id: u32, r: Receiver<u32>, wg: WaitGroup, sleep: bool) {
   for elem in r {
-    println!("Consumer id {} read {} from buffer.", id, elem);
+    // println!("Consumer id {} read {} from buffer.", id, elem);
+    if sleep {
+      // simulate an expensive computation, sleep for 1ms
+      thread::sleep(time::Duration::from_millis(1));
+    }
+
+    let mut val = elem;
+    elem *= 2; // "data computation"
   }
   wg.done();
 }
@@ -38,7 +49,7 @@ fn parse_num<T>(matches: &Matches, flag: &str, default: T) -> T
 }
 
 fn print_usage(program: &str, opts: Options) {
-  let brief = format!("Usage: {} -b BUFFER_SIZE -p NUM_PRODUCERS -c NUM_CONSUMERS -e ELEMS_PER_PRODUCER", program);
+  let brief = format!("Usage: {} [-b BUFFER_SIZE] [-p NUM_PRODUCERS] [-c NUM_CONSUMERS] [-e ELEMS_PER_PRODUCER] [-i] [-j]", program);
   print!("{}", opts.usage(&brief));
 }
 
@@ -48,10 +59,12 @@ fn main() {
 
     let mut opts = Options::new();
     opts.optflag("h", "help", "print this help menu");
-    opts.optopt("b", "", "buffer size, in bytes", "BUFFER_SIZE");
-    opts.optopt("p", "", "number of producer threads", "NUM_PRODUCERS");
-    opts.optopt("c", "", "number of consumer threads", "NUM_CONSUMERS");
-    opts.optopt("e", "", "number of elements for each producer to produce", "ELEMS_PER_PRODUCER");
+    opts.optopt("b", "", "buffer size in number of integers, default=100", "BUFFER_SIZE");
+    opts.optopt("p", "", "number of producer threads, default=5", "NUM_PRODUCERS");
+    opts.optopt("c", "", "number of consumer threads, default=5", "NUM_CONSUMERS");
+    opts.optopt("e", "", "number of elements each producer adds to buffer, default=100", "ELEMS_PER_PRODUCER");
+    opts.optflag("i", "", "have producer threads sleep for 1ms before adding int to buffer");
+    opts.optflag("j", "", "have consumer threads sleep for 1ms after reading int from buffer");
     let matches: Matches = match opts.parse(&args[1..]) {
       Ok(m) => { m }
       Err(f) => { panic!(f.to_string()) }
@@ -62,12 +75,15 @@ fn main() {
     }
 
     // default parameters
-    let producer_count = parse_num(&matches, "p", 25);
+    let producer_count = parse_num(&matches, "p", 5);
     let consumer_count = parse_num(&matches, "c", 5);
     let buffer_size: usize = parse_num(&matches, "b", 100);
-    let elems_per_producer = parse_num(&matches, "e", 10000);
+    let elems_per_producer = parse_num(&matches, "e", 100);
+    let producer_sleep = mathces.opt_present("i");
+    let consumer_sleep = mathces.opt_present("j");
 
-    println!("Parameters: p={}, c={}, b={}, e={}", producer_count, consumer_count, buffer_size, elems_per_producer);
+    // println!("Parameters: p={}, c={}, b={}, e={}, i={}, j={}",
+    //     producer_count, consumer_count, buffer_size, elems_per_producer, producer_sleep, consumer_sleep);
     
     let r = {
         let (s, r) = chan::sync(buffer_size);
@@ -77,7 +93,9 @@ fn main() {
             // Since we don't save the thread handle returned by thread::spawn(), it is
             // "dropped," so this thread will become "detached." It automatically dies
             // when it has nothing left to do.
-            thread::spawn(move || producer_basic(id, elems_per_producer, s));
+            thread::spawn(move ||
+              producer_basic(id, elems_per_producer, s, producer_sleep)
+            );
         }
 
         /* This extra scoping will drop the initial sender s we created.
@@ -93,7 +111,9 @@ fn main() {
         wg.add(1);
         let wg = wg.clone();
         let r = r.clone();
-        thread::spawn(move || consumer_basic(id, r, wg));
+        thread::spawn(move ||
+          consumer_basic(id, r, wg, consumer_sleep)
+        );
     }
 
     // If this was the end of the process and we didn't call `wg.wait()`, then
@@ -101,4 +121,3 @@ fn main() {
     // `wg.wait()` will block until all `wg.done()` calls have finished.
     wg.wait();
 }
-
