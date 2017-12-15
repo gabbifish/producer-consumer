@@ -2,8 +2,9 @@ package main
 
 import (
 	"flag"
-	"fmt"
+	// "fmt"
 	"sync"
+	"time"
 )
 
 var bufferSize int
