@@ -28,7 +28,7 @@ fn consumer_basic(id: u32, r: Receiver<u32>, wg: WaitGroup, sleep: bool) {
     }
 
     let mut val = elem;
-    elem *= 2; // "data computation"
+    val *= 2; // "data computation"
   }
   wg.done();
 }
@@ -79,8 +79,8 @@ fn main() {
     let consumer_count = parse_num(&matches, "c", 5);
     let buffer_size: usize = parse_num(&matches, "b", 100);
     let elems_per_producer = parse_num(&matches, "e", 100);
-    let producer_sleep = mathces.opt_present("i");
-    let consumer_sleep = mathces.opt_present("j");
+    let producer_sleep = matches.opt_present("i");
+    let consumer_sleep = matches.opt_present("j");
 
     // println!("Parameters: p={}, c={}, b={}, e={}, i={}, j={}",
     //     producer_count, consumer_count, buffer_size, elems_per_producer, producer_sleep, consumer_sleep);

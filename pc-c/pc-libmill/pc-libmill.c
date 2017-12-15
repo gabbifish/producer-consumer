@@ -24,13 +24,14 @@ Usage: pc-libmill [-h] [-b BUFFER_SIZE] [-p NUM_PRODUCERS] [-c NUM_CONSUMERS]
 #include <stdlib.h>
 #include <string.h>
 #include <getopt.h>
+#include <stdbool.h>
 #include <unistd.h> // for usleep()
 
 extern char* optarg;
 
-coroutine void producer(chan buffer, chan complete, int id, int elements, bool do_sleep) {
+coroutine void producer(chan buffer, chan complete, int id, int elements, bool sleep) {
 	for (int i = 0; i < elements; i++) {
-    if (producer_config->do_sleep) {
+    if (sleep) {
       // simulate a blocking disk I/O read
       // sleep for 1000 microseconds = 1 millisecond
       usleep(1000);
@@ -42,13 +43,13 @@ coroutine void producer(chan buffer, chan complete, int id, int elements, bool d
   chs(complete, int, id);
 }
 
-coroutine void consumer(chan buffer, chan complete, int id, bool do_sleep) {
+coroutine void consumer(chan buffer, chan complete, int id, bool sleep) {
   int elem = chr(buffer, int);
   while (elem >= 0) {
     // printf("Consumer id %d read %d from buffer.\n", id, elem);
     elem = chr(buffer, int);
 
-    if (do_sleep) {
+    if (sleep) {
       // simulate an expensive computation
       // sleep for 1000 microseconds = 1 millisecond
       usleep(1000);

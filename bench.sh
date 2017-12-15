@@ -7,14 +7,14 @@ make clean
 make
 
 # producer bound
-time ./pc-pthreads.c -e 100 -i
-time ./pc-pthreads.c -e 1000 -i
-time ./pc-pthreads.c -e 10000 -i
+time ./pc-pthreads -e 100 -i
+time ./pc-pthreads -e 1000 -i
+time ./pc-pthreads -e 10000 -i
 
 # consumer bound
-time ./pc-pthreads.c -e 100 -j
-time ./pc-pthreads.c -e 1000 -j
-time ./pc-pthreads.c -e 10000 -j
+time ./pc-pthreads -e 100 -j
+time ./pc-pthreads -e 1000 -j
+time ./pc-pthreads -e 10000 -j
 
 # go back to root dir
 cd ../../
@@ -23,19 +23,19 @@ cd ../../
 # libmill
 ##########
 # build
-cd ../pc-c/pc-libmill/
+cd ./pc-c/pc-libmill/
 make clean
 make
 
 # producer bound
-time ./pc-libmill.c -e 100 -i
-time ./pc-libmill.c -e 1000 -i
-time ./pc-libmill.c -e 10000 -i
+time ./pc-libmill -e 100 -i
+time ./pc-libmill -e 1000 -i
+time ./pc-libmill -e 10000 -i
 
 # consumer bound
-time ./pc-libmill.c -e 100 -j
-time ./pc-libmill.c -e 1000 -j
-time ./pc-libmill.c -e 10000 -j
+time ./pc-libmill -e 100 -j
+time ./pc-libmill -e 1000 -j
+time ./pc-libmill -e 10000 -j
 
 # go back to root dir
 cd ../../
