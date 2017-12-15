@@ -1,6 +1,6 @@
 CC = gcc
 LDIR = libmill
-CFLAGS = -g -Wall -I$(LDIR)
+CFLAGS = -g -Wall -Ofast -I$(LDIR)
 LDFLAGS = -lmill
 
 default: pc-libmill
